@@ -169,15 +169,14 @@ class AiQuill:
         タイトル、フォーム等を描画し、ユーザ操作に関連した処理を呼び出す
 
         '''
-        st.title('AI記事生成')
         container = st.container()
+        container.markdown('# AI記事生成')
         container.markdown('##### 指定されたテーマ/用語について、下記を生成します')
         container.markdown('- 〇〇とは')
         container.markdown('- 〇〇の種類')
         container.markdown('- 〇〇のメリット・デメリット')
         container.markdown('- 〇〇のやり方(使い方)')
         container.markdown('- まとめ')
-        
 
         if 'generated' not in st.session_state:
             st.session_state.generated = []
