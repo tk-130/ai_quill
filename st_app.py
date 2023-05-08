@@ -89,7 +89,7 @@ class AiQuill:
                 ・{input}のやり方(使い方) \
                 ・まとめ \
                 制約条件： \
-                ・小学生にも分かる \
+                ・小学生にも分かる(ただし、その事実を記事には明示しない) \
                 ・Markdownで出力すること \
                 '
         prompt = ChatPromptTemplate.from_messages([
