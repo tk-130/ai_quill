@@ -1,1 +1,1 @@
-# StreamlitとLangChainを使ったコーチングAIのデモ
+# StreamlitとLangChainを使ったAI記事生成アプリ
