@@ -22,7 +22,7 @@ from langchain.prompts.chat import (
 )
 from langchain.memory import ConversationBufferMemory, ConversationBufferWindowMemory
 from langchain.chains import ConversationChain
-from langchain.callbacks.base import CallbackManager, AsyncCallbackHandler, AsyncCallbackManager
+from langchain.callbacks.base import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.callbacks.streamlit import StreamlitCallbackHandler
 from typing import Any, Dict, List, Optional, Union
@@ -88,7 +88,7 @@ class AiQuill:
                 ・{input}のメリット・デメリット \
                 ・{input}のやり方(使い方) \
                 ・まとめ \
-                制約条件： \
+               制約条件： \
                 ・小学生にも分かる(ただし、その事実を記事には明示しない) \
                 ・Markdownで出力すること \
                 '
@@ -171,7 +171,7 @@ class AiQuill:
         '''
         container = st.container()
         container.markdown('# AI記事生成')
-        container.markdown('##### 指定されたテーマ/用語について、下記を生成します')
+        container.markdown('指定されたテーマ/用語について、下記を生成します')
         container.markdown('- 〇〇とは')
         container.markdown('- 〇〇の種類')
         container.markdown('- 〇〇のメリット・デメリット')
@@ -190,13 +190,28 @@ class AiQuill:
         st.session_state.chat_args = self.make_sidebar()
         form = st.form('作成する記事について', clear_on_submit=True)
         user_message = form.text_input(label='テーマ/用語', value='')
+        '''
+        LangChainがシステムメッセージの動的変更に対応していないため無効化
+        audience_type = form.radio(
+            '生成した文章の分かりやすさ',
+            ('誰にでも分かる(平易)', '技術者向け(難解)'), 
+            horizontal=True
+        )
+        '''
                         
         submitted = form.form_submit_button('生成する')
         cleared = form.form_submit_button('クリア')
         if cleared:
             st.experimental_rerun()
 
-        if submitted and user_message != '':
+        if submitted and user_message != '':  
+            '''
+            LangChainがシステムメッセージの動的変更に対応していないため無効化            
+            if audience_type == '誰にでも分かる(平易)':
+                difficulty_level = '小学生にも分かる'
+            else:
+                difficulty_level = '技術者ならわかる'
+            '''
             
             if isinstance(st.session_state.conversation, ConversationChain):
                 conversation = st.session_state.conversation
@@ -205,10 +220,13 @@ class AiQuill:
                 conversation = self.load_conversation(**chat_args)
                 st.session_state.conversation = conversation
 
+            #answer = conversation.predict(input=user_message, difficulty_level=difficulty_level)
             answer = conversation.predict(input=user_message)
 
             if answer[-1] != '。':
+                #conversation.predict(input='つづけて', difficulty_level=difficulty_level)
                 conversation.predict(input='つづけて')
+
 
 if __name__ == '__main__':
     AiQuill().main_proc()
