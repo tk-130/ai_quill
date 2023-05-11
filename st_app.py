@@ -224,9 +224,10 @@ class AiQuill:
             #answer = conversation.predict(input=user_message, difficulty_level=difficulty_level)
             answer = conversation.predict(input=user_message)
 
-            if answer[-1] != '。':
+            # うまく動作していないので再検討する
+            # if answer[-1] != '。':
                 #conversation.predict(input='つづけて', difficulty_level=difficulty_level)
-                conversation.predict(input='つづけて')
+                # conversation.predict(input='つづけて')
 
 
 if __name__ == '__main__':
