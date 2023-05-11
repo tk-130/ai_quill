@@ -202,6 +202,7 @@ class AiQuill:
         submitted = form.form_submit_button('生成する')
         cleared = form.form_submit_button('クリア')
         if cleared:
+            st.session_state.conversation = None
             st.experimental_rerun()
 
         if submitted and user_message != '':  
