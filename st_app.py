@@ -89,6 +89,7 @@ class AiQuill:
                 ・{input}のやり方(使い方) \
                 ・まとめ \
                制約条件： \
+                ・最大文字数は1000文字までとし、文章が途切れることなく書き終えること \
                 ・小学生にも分かる(ただし、その事実を記事には明示しない) \
                 ・Markdownで出力すること \
                 '
@@ -213,7 +214,6 @@ class AiQuill:
             else:
                 difficulty_level = '技術者ならわかる'
             '''
-            
             if isinstance(st.session_state.conversation, ConversationChain):
                 conversation = st.session_state.conversation
             else:
@@ -223,11 +223,6 @@ class AiQuill:
 
             #answer = conversation.predict(input=user_message, difficulty_level=difficulty_level)
             answer = conversation.predict(input=user_message)
-
-            # うまく動作していないので再検討する
-            if answer[-1] != '。':
-                #conversation.predict(input='つづけて', difficulty_level=difficulty_level)
-                conversation.predict(input=user_message + 'についてつづけて')
 
 
 if __name__ == '__main__':
