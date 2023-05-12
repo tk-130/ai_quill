@@ -36,8 +36,8 @@ class MyStdOutCallbackHandler(StreamingStdOutCallbackHandler):
 
 class MyStreamlitCallbackHandler(StreamlitCallbackHandler):
     def __init__(self) -> None:
-        self.tokens_area = st.empty()
-        self.tokens_stream = ""        
+        st.session_state.tokens_area = st.empty()
+        st.session_state.tokens_stream = ''    
 
     def on_llm_start(
         self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any
@@ -46,9 +46,12 @@ class MyStreamlitCallbackHandler(StreamlitCallbackHandler):
             
     def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
         """Run on new LLM token. Only available when streaming is enabled."""
-        self.tokens_stream += token
-        with self.tokens_area:
-            st.markdown(self.tokens_stream)
+        if 'tokens_stream' in st.session_state:
+            st.session_state.tokens_stream += token
+        
+            if 'tokens_area' in st.session_state:
+                with st.session_state.tokens_area:
+                    st.markdown(st.session_state.tokens_stream)
             
 class AiQuill:
     ''' 記事執筆支援アプリの実装クラス
@@ -89,7 +92,6 @@ class AiQuill:
                 ・{input}のやり方(使い方) \
                 ・まとめ \
                制約条件： \
-                ・最大文字数は1000文字までとし、文章が途切れることなく書き終えること \
                 ・小学生にも分かる(ただし、その事実を記事には明示しない) \
                 ・Markdownで出力すること \
                 '
@@ -118,7 +120,6 @@ class AiQuill:
         '''
         llm = ChatOpenAI(
             **kwargs,
-            model_name='gpt-4',
             streaming=True,
             callback_manager=CallbackManager([
                 MyStreamlitCallbackHandler(),
@@ -148,6 +149,7 @@ class AiQuill:
         '''
         chat_args = dict()
         st.sidebar.subheader('ChatGPT APIパラメータ')
+        chat_args['model_name'] = st.sidebar.selectbox('モデル名', ('gpt-4', 'gpt-3.5-turbo'))
         chat_args['temperature'] = st.sidebar.slider(key='temperature',
                                                      label='文章のランダム性:(0-2)', min_value=0.0, max_value=2.0, value=1.0, step=0.1)
         chat_args['top_p'] = st.sidebar.slider(key='top_p',
@@ -155,7 +157,7 @@ class AiQuill:
         chat_args['stop'] = st.sidebar.text_input(key='stop',
                                                   label='終了条件', value=None)
         chat_args['max_tokens'] = st.sidebar.number_input(key='max_tokens',
-                                                          label='最大トークン数(0-)', min_value=0, value=1024)
+                                                          label='最大トークン数(0-)', min_value=0, value=5000)
         chat_args['presence_penalty'] = st.sidebar.slider(key='pr_penalty',
                                                           label='同じ単語が繰り返し出現することの抑制:(-2-2)', min_value=-2.0,
                                                           max_value=2.0, value=0.0, step=0.1)
@@ -206,7 +208,13 @@ class AiQuill:
             st.session_state.conversation = None
             st.experimental_rerun()
 
-        if submitted and user_message != '':  
+        if submitted and user_message != '':
+            
+            if 'tokens_area' in st.session_state:
+                st.session_state.tokens_area = st.empty()
+            if 'tokens_stream' in st.session_state:
+                st.session_state.tokens_stream = ''
+                
             '''
             LangChainがシステムメッセージの動的変更に対応していないため無効化            
             if audience_type == '誰にでも分かる(平易)':
