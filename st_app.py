@@ -205,6 +205,11 @@ class AiQuill:
         submitted = form.form_submit_button('生成する')
         cleared = form.form_submit_button('クリア')
         if cleared:
+            if 'tokens_area' in st.session_state:
+                st.session_state.tokens_area = st.empty()
+            if 'tokens_stream' in st.session_state:
+                st.session_state.tokens_stream = ''
+
             st.session_state.conversation = None
             st.experimental_rerun()
 
@@ -222,12 +227,9 @@ class AiQuill:
             else:
                 difficulty_level = '技術者ならわかる'
             '''
-            if isinstance(st.session_state.conversation, ConversationChain):
-                conversation = st.session_state.conversation
-            else:
-                chat_args = st.session_state.chat_args
-                conversation = self.load_conversation(**chat_args)
-                st.session_state.conversation = conversation
+            chat_args = st.session_state.chat_args
+            conversation = self.load_conversation(**chat_args)
+            st.session_state.conversation = conversation
 
             #answer = conversation.predict(input=user_message, difficulty_level=difficulty_level)
             answer = conversation.predict(input=user_message)
