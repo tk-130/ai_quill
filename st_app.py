@@ -13,6 +13,7 @@ from streamlit_chat import message
 import asyncio
 import openai
 import os
+from langchain import PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts.chat import (
     ChatPromptTemplate,
@@ -21,7 +22,7 @@ from langchain.prompts.chat import (
     MessagesPlaceholder,
 )
 from langchain.memory import ConversationBufferMemory, ConversationBufferWindowMemory
-from langchain.chains import ConversationChain
+from langchain.chains import ConversationChain, SequentialChain, LLMChain
 from langchain.callbacks.base import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.callbacks.streamlit import StreamlitCallbackHandler
@@ -34,7 +35,7 @@ class MyStdOutCallbackHandler(StreamingStdOutCallbackHandler):
         sys.stdout.write(token)
         sys.stdout.flush()    
 
-class MyStreamlitCallbackHandler(StreamlitCallbackHandler):
+class GenerateStreamlitCallbackHandler(StreamlitCallbackHandler):
     def __init__(self) -> None:
         st.session_state.tokens_area = st.empty()
         st.session_state.tokens_stream = ''    
@@ -52,7 +53,21 @@ class MyStreamlitCallbackHandler(StreamlitCallbackHandler):
             if 'tokens_area' in st.session_state:
                 with st.session_state.tokens_area:
                     st.markdown(st.session_state.tokens_stream)
-            
+
+class EvaluateStreamlitCallbackHandler(GenerateStreamlitCallbackHandler):
+    def __init__(self) -> None:
+        st.session_state.eval_tokens_area = st.empty()
+        st.session_state.eval_tokens_stream = ''
+
+    def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
+        """Run on new LLM token. Only available when streaming is enabled."""
+        if 'eval_tokens_stream' in st.session_state:
+            st.session_state.eval_tokens_stream += token
+        
+            if 'eval_tokens_area' in st.session_state:
+                with st.session_state.eval_tokens_area:
+                    st.markdown(st.session_state.eval_tokens_stream)
+
 class AiQuill:
     ''' 記事執筆支援アプリの実装クラス
 
@@ -92,17 +107,38 @@ class AiQuill:
                 ・{input}のやり方(使い方) \
                 ・まとめ \
                制約条件： \
-                ・小学生にも分かる(ただし、その事実を記事には明示しない) \
+                ・企業のオウンドメディア向けのWeb記事であることを前提とすること \
+                ・{difficulty_level}(ただし、その事実を記事には明示しない) \
                 ・Markdownで出力すること \
                 '
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system_message),
-            MessagesPlaceholder(variable_name='history'),
-            HumanMessagePromptTemplate.from_template('{input}')
-        ])
+        system_prompt = PromptTemplate(template=system_message, input_variables=['input', 'difficulty_level'])
+        return system_prompt
+
+    def create_evaluate_prompt(self) -> str:
+        ''' プロンプト作成処理
+
+        ChatGPTの動作の前提を表すシステムプロンプト、過去のやりとり、
+        ユーザ入力をAPIに渡せる形に整形し、返却する
+
+        Returns
+        ----------
+        str
+            APIに渡すプロンプト(文章)
+        '''
+        system_message = ' \
+                ・{input}に対する{answer}の内容が必要十分かどうか第三者視点で厳しく講評してください。(ただし、その事実を記事には明示しない) \
+                記載する項目： \
+                ・第三者視点AIによる講評 \
+                制約条件： \
+                ・第三者視点AIによる講評という見出しから開始すること(ただし、その事実を記事には明示しない) \
+                ・{difficulty_level}(ただし、その事実を記事には明示しない) \
+                ・企業のオウンドメディア向けのWeb記事であることを前提とする(ただし、その事実を記事には明示しない) \
+                ・Markdownで出力すること(ただし、その事実を記事には明示しない) \
+                '
+        prompt = PromptTemplate(template=system_message, input_variables=['input', 'answer', 'difficulty_level'])
         return prompt
 
-    def load_conversation(self, **kwargs) -> ConversationChain:
+    def load_chain(self, **kwargs) -> SequentialChain:
         ''' 会話の実行処理
 
         指定された引数を元にChatGPT APIを呼び出し、会話のやりとりを返却する
@@ -115,25 +151,42 @@ class AiQuill:
 
         Returns
         ----------
-        ConversationChain
-            会話のやりとりを記録したオブジェクト
+        SequentialChain
+            LLMとのやりとりを提供するオブジェクト
         '''
-        llm = ChatOpenAI(
+        generate_llm = ChatOpenAI(
             **kwargs,
             streaming=True,
             callback_manager=CallbackManager([
-                MyStreamlitCallbackHandler(),
+                GenerateStreamlitCallbackHandler(),
             ]),
             verbose=True
         )
-        memory = ConversationBufferWindowMemory(return_messages=True, k=8)
-        conversation = ConversationChain(
-            memory=memory,
-            prompt=self.create_prompt(),
-            llm=llm,
+        
+        generate_chain = LLMChain(
+            llm=generate_llm, 
+            prompt=self.create_prompt(), output_key='answer')
+
+        evaluate_llm = ChatOpenAI(
+            **kwargs,
+            streaming=True,
+            callback_manager=CallbackManager([
+                EvaluateStreamlitCallbackHandler(),
+            ]),
+            verbose=True
+        )
+        
+        evaluate_chain = LLMChain(
+            llm=evaluate_llm, 
+            prompt=self.create_evaluate_prompt(), output_key='evaluate')
+
+        chain = SequentialChain(
+            chains=[generate_chain, evaluate_chain],
+            input_variables=['input', 'difficulty_level'],
+            output_variables=['answer', 'evaluate'],
             verbose=False
         )
-        return conversation
+        return chain
 
     def make_sidebar(self) -> dict:
         ''' サイドバーに関する処理
@@ -156,8 +209,13 @@ class AiQuill:
                                                label='文章の多様性:(0-1)', min_value=0.0, max_value=1.0, value=1.0, step=0.1)
         chat_args['stop'] = st.sidebar.text_input(key='stop',
                                                   label='終了条件', value=None)
+        if chat_args['model_name'] == 'gpt-4':
+            default_token = 5000
+        else:
+            default_token = 2000
+            
         chat_args['max_tokens'] = st.sidebar.number_input(key='max_tokens',
-                                                          label='最大トークン数(0-)', min_value=0, value=5000)
+                                                          label='最大トークン数(0-)', min_value=0, value=default_token)
         chat_args['presence_penalty'] = st.sidebar.slider(key='pr_penalty',
                                                           label='同じ単語が繰り返し出現することの抑制:(-2-2)', min_value=-2.0,
                                                           max_value=2.0, value=0.0, step=0.1)
@@ -165,6 +223,22 @@ class AiQuill:
                                                            label='過去の予測で出現した回数に応じた単語の出現確率の引き下げ:(-2-2)',
                                                            min_value=-2.0, max_value=2.0, value=0.0, step=0.1)
         return chat_args
+
+    def init_container_stuff(self) -> None:
+        ''' セッション管理されたコンテナの初期化処理
+
+        LangChainのコールバックマネージャから呼び出される画面更新用ハンドラ関数で使用する描画用コンテナを初期化する        
+
+        '''        
+        if 'tokens_area' in st.session_state:
+            st.session_state.tokens_area = st.empty()
+        if 'tokens_stream' in st.session_state:
+            st.session_state.tokens_stream = ''
+        if 'eval_tokens_area' in st.session_state:
+            st.session_state.eval_tokens_area = st.empty()
+        if 'eval_tokens_stream' in st.session_state:
+            st.session_state.eval_tokens_stream = ''        
+
 
     def main_proc(self) -> None:
         ''' メイン処理
@@ -185,54 +259,44 @@ class AiQuill:
             st.session_state.generated = []
         if 'past' not in st.session_state:
             st.session_state.past = []
-        if 'conversation' not in st.session_state:
-            st.session_state.conversation = None
+        if 'seq_chain' not in st.session_state:
+            st.session_state.seq_chain = None
         if 'chat_args' not in st.session_state:
             st.session_state.chat_args = None
 
         st.session_state.chat_args = self.make_sidebar()
         form = st.form('作成する記事について', clear_on_submit=True)
         user_message = form.text_input(label='テーマ/用語', value='')
-        '''
-        LangChainがシステムメッセージの動的変更に対応していないため無効化
+
         audience_type = form.radio(
             '生成した文章の分かりやすさ',
-            ('誰にでも分かる(平易)', '技術者向け(難解)'), 
+            ('誰にでも分かる(平易)', '一般的', '技術者向け(難解)'), 
             horizontal=True
         )
-        '''
                         
         submitted = form.form_submit_button('生成する')
         cleared = form.form_submit_button('クリア')
         if cleared:
-            if 'tokens_area' in st.session_state:
-                st.session_state.tokens_area = st.empty()
-            if 'tokens_stream' in st.session_state:
-                st.session_state.tokens_stream = ''
+            self.init_container_stuff()
 
-            st.session_state.conversation = None
+            st.session_state.seq_chain = None
             st.experimental_rerun()
 
-        if submitted and user_message != '':
-            
-            if 'tokens_area' in st.session_state:
-                st.session_state.tokens_area = st.empty()
-            if 'tokens_stream' in st.session_state:
-                st.session_state.tokens_stream = ''
-                
-            '''
-            LangChainがシステムメッセージの動的変更に対応していないため無効化            
+        if submitted and user_message != '':            
+            self.init_container_stuff()
+
             if audience_type == '誰にでも分かる(平易)':
                 difficulty_level = '小学生にも分かる'
+            elif audience_type == '一般的':
+                difficulty_level = 'IT知識が無い大人にも分かる'
             else:
-                difficulty_level = '技術者ならわかる'
-            '''
-            chat_args = st.session_state.chat_args
-            conversation = self.load_conversation(**chat_args)
-            st.session_state.conversation = conversation
+                difficulty_level = '技術者なら分かる'
 
-            #answer = conversation.predict(input=user_message, difficulty_level=difficulty_level)
-            answer = conversation.predict(input=user_message)
+            chat_args = st.session_state.chat_args
+            seq_chain = self.load_chain(**chat_args)
+            st.session_state.seq_chain = seq_chain
+
+            seq_chain({'input': user_message, 'difficulty_level':difficulty_level})
 
 
 if __name__ == '__main__':
